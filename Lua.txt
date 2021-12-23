@@ -1,0 +1,392 @@
+using System;
+
+Pick_Place_App
+{
+    port Success child("gripper_close").port("success")
+  port Error child("gripper_open").port("error") or
+                  child("gripper_close").port("error")
+
+  entry @{
+        printf("Hello World!")
+  }@
+
+  --> gripper_open < -gripper_move {
+        port success -> gripper_close
+  }
+    where {
+    width: 0.1;
+    speed: 0.2;
+    }
+
+    gripper_close < -grasp {
+    }
+    where {
+    width: 0.05;
+    speed: 0.1;
+    force: 20.0;
+    }
+}
+
+port Success child("gripper_close").port("success")
+
+name
+{
+    port Success true
+  port Error false
+
+  clientData {
+    type: "app";
+    name: "Name";
+    }
+
+    resultType {
+        string error_cause;
+    }
+}
+
+clientData
+{
+type: "app";
+name: "Pick Contact";
+color: "#B6E591";
+requiredParameters:[{ source: speed; localParameter: speed; }];
+image: @{
+    < svg >< use href = "bundles/tutorial/Tutorial_logo.svg#icon" ></ use ></ svg >
+  }@;
+}
+
+resultType
+{
+    string error_cause;
+}
+
+action child("gripper_open").port("error") @{
+    setResult({ error_cause = child("gripper_open").result.error_cause})
+}@
+action child("gripper_close").port("error") @{
+    setResult({ error_cause = child("gripper_close").result.error_cause})
+}@
+
+  parameterType
+{
+    float gripper_open_width;
+    float gripper_closed_width;
+}
+
+--> gripper_open < -gripper_move {
+    port success -> gripper_close
+  }
+where
+{
+width: parameter.gripper_open_width;
+speed: 0.1;
+}
+
+gripper_close < -grasp {
+}
+where
+{
+width: parameter.gripper_closed_width;
+speed: 0.1;
+force: 20.0;
+}
+} where
+{
+gripper_open_width: nil;
+gripper_closed_width: nil;
+}
+
+clientData
+{
+contextMenu: @{
+    < step id = "pick-motion" name = "Gripper Width" class= "flex-column" >
+     
+           < step id = "approach-width" name = "Open fingers" >
+        
+                < gripper - control params= "
+          width: parameter('gripper_open_width'),
+          step: step
+        "></gripper-control>
+      </ step >
+      < step id = "pick-width" name = "Close fingers" >
+   
+             < gripper - control params= "
+            width: parameter('gripper_closed_width'),
+            step: step
+          "></gripper-control>
+      </ step >
+    </ step >
+  }@;
+}
+
+parameterType
+{
+    {
+        [16]float pose;
+        []float joint_angles;
+    }
+    pick_approach;
+    {
+        [16]float pose;
+        []float joint_angles;
+    }
+    pick_pose;
+    float speed;
+    float velocity;
+    float gripper_open_width;
+    float gripper_closed_width;
+}
+
+compute_parameters < -merge_trajectory_and_kinematic_parameters {
+    port done -> gripper_open
+}
+where
+{
+add_to_approach: true;
+add_to_retract: false;
+approach:[parameter.pick_approach];
+approach_end: parameter.pick_pose;
+retract_start: parameter.pick_pose;
+retract:[parameter.pick_approach];
+cartesian_velocity_factor_approach: parameter.velocity* parameter.speed;
+cartesian_acceleration_factor_approach: 0.8 * parameter.velocity * parameter.speed;
+cartesian_deceleration_factor_approach: 0.8 * parameter.velocity * parameter.speed;
+cartesian_velocity_factor_ptp: parameter.velocity* parameter.speed;
+cartesian_acceleration_factor_ptp: 0.8 * parameter.velocity * parameter.speed;
+cartesian_deceleration_factor_ptp: 0.8 * parameter.velocity * parameter.speed;
+cartesian_velocity_factor_retract: parameter.velocity* parameter.speed;
+cartesian_acceleration_factor_retract: 0.8 * parameter.velocity * parameter.speed;
+cartesian_deceleration_factor_retract: 0.8 * parameter.velocity * parameter.speed;
+}
+
+gripper_open < -gripper_move {
+    port success -> approach
+}
+where
+{
+width: parameter.gripper_open_width;
+speed: 0.1;
+}
+
+approach < -move_via_with_move_configuration {
+    port success -> gripper_close
+}
+where
+{
+poses: child("compute_parameters").result.approach;
+}
+
+gripper_close < -grasp {
+    port success -> retract
+}
+where
+{
+width: parameter.gripper_closed_width;
+speed: 0.1;
+force: 20.0;
+}
+
+retract < -move_via_with_move_configuration {
+}
+where
+{
+poses: child("compute_parameters").result.retract;
+}
+
+port Success child("retract").port("success")
+port Error child("approach").port("error") or
+           child("gripper_open").port("error") or
+           child("gripper_close").port("error") or
+           child("retract").port("error")
+  action child("gripper_open").port("error") @{
+    setResult({ error_cause = child("gripper_open").result.error_cause})
+  }@
+  action child("approach").port("error") @{
+    setResult({ error_cause = child("approach").result.error_cause})
+  }@
+  action child("retract").port("error") @{
+    setResult({ error_cause = child("retract").result.error_cause})
+  }@
+  action child("gripper_close").port("error") @{
+    setResult({ error_cause = child("gripper_close").result.error_cause})
+  }@
+} where
+{
+pick_approach: nil;
+pick_pose: nil;
+speed: nil;
+velocity: nil;
+gripper_open_width: nil;
+gripper_closed_width: nil;
+}
+
+move_monitored
+{
+    port success child("move").port("success")
+  port error child("move").port("error") or
+             child("observe_part_lost").port("part_lost")
+
+  parameterType {
+        []
+        {
+            {[16]float pose; }
+            pose;
+            bool point2point;
+            float cartesian_velocity_factor;
+            float cartesian_acceleration_factor;
+            float cartesian_deceleration_factor;
+            float q3;
+        }
+        poses;
+    }
+
+    resultType {
+        string error_cause;
+    }
+
+    --> barrier move_and_check {
+    -> move
+    ->observe_part_lost
+    }
+
+    move < -move_via_with_move_configuration {
+    }
+    where {
+    poses: parameter.poses;
+    }
+
+    observe_part_lost < -gripper_observer {
+    }
+
+    action child("observe_part_lost").port("part_lost") @{
+        setResult({ error_cause = "Part was lost during motion." })
+  }@
+
+  action child("move").port("error") @{
+        setResult({ error_cause = child("move").result.error_cause })
+  }@
+}
+--> barrier move_and_check
+{
+  -> move
+  ->observe_part_lost
+}
+
+compute_parameters_place < -merge_trajectory_and_kinematic_parameters {
+    port done -> gripper_open
+}
+where
+{
+add_to_approach: true;
+add_to_retract: false;
+approach:[parameter.place_approach];
+approach_end: parameter.place_pose;
+retract_start: parameter.place_pose;
+retract:[parameter.place_approach];
+cartesian_velocity_factor_approach: parameter.velocity* parameter.speed;
+cartesian_acceleration_factor_approach: 0.8 * parameter.velocity * parameter.speed;
+cartesian_deceleration_factor_approach: 0.8 * parameter.velocity * parameter.speed;
+cartesian_velocity_factor_ptp: parameter.velocity* parameter.speed;
+cartesian_acceleration_factor_ptp: 0.8 * parameter.velocity * parameter.speed;
+cartesian_deceleration_factor_ptp: 0.8 * parameter.velocity * parameter.speed;
+cartesian_velocity_factor_retract: parameter.velocity* parameter.speed;
+cartesian_acceleration_factor_retract: 0.8 * parameter.velocity * parameter.speed;
+cartesian_deceleration_factor_retract: 0.8 * parameter.velocity * parameter.speed;
+}
+
+retract < -move_via_with_move_configuration {
+    port success -> transport
+}
+where
+{
+poses: child("compute_parameters").result.retract;
+}
+
+transport < -move_monitored {
+    port success -> gripper_open_place
+}
+where
+{
+poses: child("compute_parameters_place").result.approach;
+}
+
+gripper_open_place < -gripper_move {
+}
+where
+{
+width: parameter.gripper_place_open_width;
+speed: 0.1;
+}
+
+port success result ~= nil and result.expected -> reset
+  port error result ~= nil and result.expected == false
+  parameterType {
+      [16]float expected_pose;
+string error_cause;
+{
+    [7]float tau_ext;
+    [6]float K_F_ext_hat_K;
+    {
+        [16]float pose;
+    }
+    O_T_EE;
+    [2]float elbow;
+    int cartesian_goal_id;
+    [7]float q;
+    [6]float cartesian_collision;
+    [7]float joint_collision;
+    []string robot_errors;
+}
+move_error;
+{
+    float x;
+    float y;
+    float z;
+}
+contact;
+  }
+  resultType
+{
+    bool expected;
+    string error_cause;
+}
+entry @{
+    setResult(nil)
+  }@
+  action result == nil @{
+    if parameter.move_error == nil or not utils.contains(parameter.move_error.robot_errors, {"cartesian_reflex_flag", "joint_reflex_flag"}) then
+      setResult({ expected = false, error_cause = "Unexpected error. "..parameter.error_cause })
+    else
+    local current_ee = parameter.move_error.O_T_EE.pose
+      if (abs(current_ee[13] - parameter.expected_pose[13]) > parameter.contact.x or
+          abs(current_ee[14] - parameter.expected_pose[14]) > parameter.contact.y or
+          abs(current_ee[15] - parameter.expected_pose[15]) > parameter.contact.z) then
+        setResult({ expected = false, error_cause = "Error outside of defined radius. "..parameter.error_cause})
+      else
+    setResult({ expected = true})
+      end
+    end
+  }@
+}
+
+    move < -move_via_with_move_configuration {
+    port error -> check
+}
+where
+{
+poses: parameter.poses;
+}
+
+check < -check_error {
+    port success -> reset
+}
+where
+{
+expected_pose: parameter.poses[#parameter.poses].pose.pose;
+  contact: parameter.contact;
+error_cause: child("move").result.error_cause;
+move_error: child("move").result.move_error;
+}
+
+reset < -wait_until_reset_collision {
+}
